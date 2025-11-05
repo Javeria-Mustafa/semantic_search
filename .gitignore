@@ -1,0 +1,26 @@
+# Environment and secrets
+.env
+
+# Data files
+*.xlsx
+*.csv
+*.pkl
+chroma_store/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# System files
+.DS_Store
+*.log
+.vscode/
+.idea/
+
+# Jupyter files
+*.ipynb
+.ipynb_checkpoints/
+
+# Archives
+*.zip
