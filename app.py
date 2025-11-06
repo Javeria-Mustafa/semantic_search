@@ -15,7 +15,9 @@ load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_store")
-PRODUCTS_FILE = os.getenv("PRODUCTS_FILE", "Sample Data Full Export (2).xlsx")
+# PRODUCTS_FILE = os.getenv("PRODUCTS_FILE", "Sample Data Full Export (2).xlsx")
+PRODUCTS_FILE = 'product.xlsx'
+
 
 if not OPENAI_API_KEY:
     raise ValueError("❌ Missing OPENAI_API_KEY in .env file")
