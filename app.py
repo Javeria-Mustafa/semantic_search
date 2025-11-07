@@ -6,26 +6,23 @@ from openai import OpenAI
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import re
+from flask_cors import CORS
 
-# ==================================================
-# 1️⃣ Load Environment Variables
-# ==================================================
+
+app = Flask(__name__)
+CORS(app)  
+
 print("🚀 Loading environment variables...")
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_store")
-# PRODUCTS_FILE = os.getenv("PRODUCTS_FILE", "Sample Data Full Export (2).xlsx")
-PRODUCTS_FILE = 'product.xlsx'
-
+PRODUCTS_FILE = "product.xlsx"
 
 if not OPENAI_API_KEY:
     raise ValueError("❌ Missing OPENAI_API_KEY in .env file")
 
-# ==================================================
-# 2️⃣ Initialize Flask, OpenAI, and Chroma
-# ==================================================
-app = Flask(__name__)
+
 client = OpenAI(api_key=OPENAI_API_KEY)
 chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
 
@@ -36,30 +33,24 @@ except Exception:
     print("⚠️ Collection not found, creating new one...")
     collection = chroma_client.create_collection("products")
 
-# ==================================================
-# 3️⃣ Load Product Data
-# ==================================================
+
 if not os.path.exists(PRODUCTS_FILE):
     raise FileNotFoundError(f"❌ Excel file not found at {PRODUCTS_FILE}")
 
 df = pd.read_excel(PRODUCTS_FILE).fillna("")
-
 df["normalized_title"] = df["Title"].astype(str).str.lower().str.strip()
 df["normalized_sku"] = df["Variant SKU"].astype(str).str.lower().str.strip()
 df["normalized_handle"] = df["Handle"].astype(str).str.lower().str.strip()
 
 print(f"✅ Loaded {len(df)} products from Excel")
 
-# ==================================================
-# 4️⃣ Helper Functions
-# ==================================================
+
 def find_exact_match(query: str):
-    """Search for direct match in SKU, Title, or Handle."""
     q = query.lower().strip()
     mask = (
-        df["normalized_title"].str.contains(re.escape(q), na=False) |
-        df["normalized_sku"].str.contains(re.escape(q), na=False) |
-        df["normalized_handle"].str.contains(re.escape(q), na=False)
+        df["normalized_title"].str.contains(re.escape(q), na=False)
+        | df["normalized_sku"].str.contains(re.escape(q), na=False)
+        | df["normalized_handle"].str.contains(re.escape(q), na=False)
     )
     results = df[mask]
 
@@ -80,13 +71,8 @@ def find_exact_match(query: str):
 
 
 def is_out_of_context(query: str):
-    """
-    Detects unrelated queries (like 'apples' or 'phones')
-    using keywords + optional GPT fallback.
-    """
     q = query.lower().strip()
 
-    # 🚫 Irrelevant terms
     unrelated_keywords = [
         "apple", "banana", "fruit", "vegetable", "food", "drink",
         "clothes", "shirt", "pants", "shoes", "bag", "tv", "phone",
@@ -97,7 +83,6 @@ def is_out_of_context(query: str):
         print("🛑 Unrelated keyword detected.")
         return True
 
-    # ✅ Domain terms (tractor / parts)
     related_terms = [
         "tractor", "branson", "filter", "plug", "hose", "pump", "valve",
         "engine", "part", "bolt", "screw", "bearing", "gasket", "seat",
@@ -108,7 +93,6 @@ def is_out_of_context(query: str):
         print("✅ Query looks related to our domain.")
         return False
 
-    # 🧠 Optional GPT relevance check
     try:
         print("🤖 Checking relevance using GPT...")
         resp = client.responses.create(
@@ -123,7 +107,6 @@ def is_out_of_context(query: str):
 
 
 def semantic_search(query: str):
-    """Perform semantic search in Chroma."""
     response = client.embeddings.create(
         model="text-embedding-3-large",
         input=query
@@ -149,9 +132,6 @@ def semantic_search(query: str):
     return formatted
 
 
-# ==================================================
-# 5️⃣ API Endpoint
-# ==================================================
 @app.route("/semantic-search", methods=["POST"])
 def hybrid_search():
     try:
@@ -198,9 +178,6 @@ def hybrid_search():
         return jsonify({"error": str(e)}), 500
 
 
-# ==================================================
-# 6️⃣ Run Server
-# ==================================================
 if __name__ == "__main__":
     print("🚀 Running Flask app on http://127.0.0.1:5000")
     app.run(host="0.0.0.0", port=5000, debug=True)
