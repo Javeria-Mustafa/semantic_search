@@ -10,7 +10,22 @@ from flask_cors import CORS
 
 
 app = Flask(__name__)
-CORS(app)  
+
+CORS(
+    app,
+    resources={r"/*": {"origins": "*"}},
+    supports_credentials=True,
+    allow_headers=["Content-Type", "Authorization"],
+    methods=["GET", "POST", "OPTIONS"]
+)
+
+# Handle preflight globally
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+
+
 
 print("🚀 Loading environment variables...")
 load_dotenv()
@@ -22,15 +37,15 @@ PRODUCTS_FILE = "product.xlsx"
 if not OPENAI_API_KEY:
     raise ValueError("❌ Missing OPENAI_API_KEY in .env file")
 
-
 client = OpenAI(api_key=OPENAI_API_KEY)
 chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
+
 
 try:
     collection = chroma_client.get_collection("products")
     print("✅ Loaded existing 'products' collection")
 except Exception:
-    print("⚠️ Collection not found, creating new one...")
+    print("⚠️ Collection not found — creating new one...")
     collection = chroma_client.create_collection("products")
 
 
@@ -43,6 +58,7 @@ df["normalized_sku"] = df["Variant SKU"].astype(str).str.lower().str.strip()
 df["normalized_handle"] = df["Handle"].astype(str).str.lower().str.strip()
 
 print(f"✅ Loaded {len(df)} products from Excel")
+
 
 
 def find_exact_match(query: str):
@@ -70,6 +86,7 @@ def find_exact_match(query: str):
     return None
 
 
+
 def is_out_of_context(query: str):
     q = query.lower().strip()
 
@@ -90,20 +107,21 @@ def is_out_of_context(query: str):
         "clutch", "belt", "sensor", "lever", "arm"
     ]
     if any(word in q for word in related_terms):
-        print("✅ Query looks related to our domain.")
+        print("✅ Query is domain related.")
         return False
 
     try:
-        print("🤖 Checking relevance using GPT...")
+        print("🤖 Checking relevance via GPT…")
         resp = client.responses.create(
             model="gpt-4o-mini",
-            input=f"Is the following query about tractor parts, Branson tractors, or mechanical components? Answer 'Yes' or 'No'. Query: {query}"
+            input=f"Is this query about tractor parts or mechanical components? Reply Yes or No.\nQuery: {query}"
         )
         ans = resp.output[0].content[0].text.lower()
         return "no" in ans
     except Exception as e:
-        print("⚠️ GPT check failed:", e)
+        print("⚠️ GPT relevance check failed:", e)
         return False
+
 
 
 def semantic_search(query: str):
@@ -132,8 +150,12 @@ def semantic_search(query: str):
     return formatted
 
 
-@app.route("/semantic-search", methods=["POST"])
+
+@app.route("/semantic-search", methods=["POST", "OPTIONS"])
 def hybrid_search():
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+
     try:
         data = request.get_json()
         query = data.get("query", "").strip()
@@ -141,9 +163,8 @@ def hybrid_search():
         if not query:
             return jsonify({"error": "No query provided"}), 400
 
-        print(f"\n🔍 Incoming query: {query}")
+        print(f"\n🔍 Query received: {query}")
 
-        # 1️⃣ Out-of-context detection
         if is_out_of_context(query):
             return jsonify({
                 "query": query,
@@ -152,20 +173,17 @@ def hybrid_search():
                 "source": "none"
             })
 
-        # 2️⃣ Exact match
         exact_results = find_exact_match(query)
         if exact_results:
-            print("🎯 Exact match found!")
+            print("🎯 Exact match found")
             return jsonify({"query": query, "results": exact_results, "source": "exact"})
 
-        # 3️⃣ Semantic fallback
-        print("🧠 No exact match — running semantic search...")
+        print("🧠 Running semantic search…")
         semantic_results = semantic_search(query)
         if semantic_results:
             return jsonify({"query": query, "results": semantic_results, "source": "semantic"})
 
-        # 4️⃣ Nothing found
-        print("⚙️ No match at all.")
+        print("⚙️ No results found.")
         return jsonify({
             "query": query,
             "message": "No relevant products found.",
@@ -174,10 +192,12 @@ def hybrid_search():
         })
 
     except Exception as e:
-        print("❌ Error during search:", e)
+        print("❌ ERROR:", e)
         return jsonify({"error": str(e)}), 500
 
 
+
 if __name__ == "__main__":
-    print("🚀 Running Flask app on http://127.0.0.1:5000")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.environ.get("PORT", 8080))
+    print(f"🚀 Flask API running at: 0.0.0.0:{port}")
+    app.run(host="0.0.0.0", port=port)
